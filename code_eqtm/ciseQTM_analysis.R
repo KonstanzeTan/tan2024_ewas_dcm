@@ -7,61 +7,65 @@
 #'
 #' @author Konstanze Tan <konstanz001@e.ntu.edu.sg) 
 #'
-#' @date Monday Jan 22 2024
+#' @date Friday Dec 13 2024
 #' -----------------------------------------------------------------------------
-# load required packages 
+# load betas
+phe_magnet <- read.delim("phe_expr.txt")
+beta_magnet  <- readRDS("beta_QN_detP001_marker095_rmch_magnet.rds")
+beta_magnet <- as.data.frame(beta_magnet)
+beta_magnet <- beta_magnet[,colnames(beta_magnet) %in% phe_magnet$BeadChip]
 
-library(devtools)
-library(Biobase)
-library(MatrixEQTL)
+# load covariates
+cov_magnet <-read.delim("cvrt_306_AgeGenderRaceRINPF7891213", check.names=F) #rownames: covariates (factor encoded), colnames: samples
+cov_magnet <-as.data.frame(t(cov_magnet))
 
-# ------------------------------------------------------------------------------
-# read in covariate, methylation and gene expression data
+# read in gene expression file
+gene_expr<-read.delim("magnet_expr_filt_norm", check.names=F) #rownames: ENSGID, colnames: BeadChip
 
-cvrt <- read.delim("cvrt_306_AgeGenderRaceRINPEERFACTORS", check.names = FALSE) 
-cvrt <- as.data.frame(t(cvrt))  # Row names: covariates (factor encoded), column names: samples
-load("beta_306_magnet_sentinels.RData")
-gene_expr <- read.delim("magnet_expr_filt_norm", check.names = FALSE)  # Row names: ENSGID, column names: BeadChip
+# check if column order is standardized
+gene_expr <- gene_expr[, colnames(beta_magnet)]
+colnames(beta_magnet)==colnames(gene_expr)
+
+cov_magnet <- cov_magnet[, colnames(beta_magnet)]
+colnames(beta_magnet)==colnames(cov_magnet)
 
 # read in CpG and Gene position information
-cpgspos <- read.delim("cpgspos_sentinels") # 
-genepos <- read.delim("genepos_16465_auto_hg19")  # Geneid, chr, left, right; autosomal genes with hg19 coordinates
 
-# standardize column order
-gene_expr <- gene_expr[, colnames(beta)]
-colnames(beta) == colnames(gene_expr)
-cvrt <- cvrt[, colnames(beta)]
-colnames(beta) == colnames(cvrt)
+cpgspos <- read.delim("cpgspos_147033_sentinels_backg") # 0-start to correspond with gene
+cpgspos <- cpgspos[cpgspos$CpG %in% sentinels,]
+genepos <- readRDS("/genepos_16465_auto_hg19.rds")#geneid, chr, left, right
 
 # prepare SlicedData object for gene expression
-gene <- SlicedData$new()
+
+gene = SlicedData$new()
 gene$CreateFromMatrix(as.matrix(gene_expr))
-gene$fileSliceSize <- 2000  # Read file in pieces of 2,000 rows
+gene$fileSliceSize = 2000# read file in pieces of 2,000 rows
 
 # prepare SlicedData object for covariates
-cvrt <- SlicedData$new()  # Leave as this if not running with covariates 
-cvrt$CreateFromMatrix(as.matrix(cvrt))
+cvrt = SlicedData$new(); # leave as this if not running with covariates 
+cvrt$CreateFromMatrix(as.matrix(cov_magnet))
 
-# prepare SlicedData object for CpGs (matrix, rownames=CpGs, colnames=samples)
-cpgs <- SlicedData$new()
-cpgs$CreateFromMatrix(as.matrix(beta))
-cpgs$fileSliceSize <- 2000  # Read file in pieces of 2,000 rows
+# prepare SlicedData object for cpgs (matrix, rownames=CpGs, colnames=samples)
+cpgs = SlicedData$new()
+cpgs$CreateFromMatrix(as.matrix(beta_magnet))
+cpgs$fileSliceSize = 2000 #read file in pieces of 2,000 rows (too big= faster to compute but slower to load; balance!)
 
-output_file_name <- "eQTM_AgeGenderRaceRINPEERFACTORS_cis_1Mb"
+# Run eQTM analysis
 
-me <- Matrix_eQTL_main(
-  snps = cpgs,  # Sliced data object 
-  gene = gene,
-  cvrt = cvrt,
-  output_file_name.cis = output_file_name,
-  pvOutputThreshold.cis = 1,
-  pvOutputThreshold = 0,  # Set = 0 if analyzing cis-pairs
-  snpspos = cpgspos,
-  genepos = genepos,
-  useModel = modelLINEAR,  # standard additive linear model rather than dominant or recessive linear model (applies to genetic data)
-  errorCovariance = numeric(),  # Independence for gene expression
-  verbose = TRUE,
-  cisDist = 1e6,  # Distance for local gene-CpG pairs. 
-  min.pv.by.genesnp = FALSE,
-  noFDRsaveMemory = FALSE  # Calculate FDR?
-)
+output_file_name = c("eQTM_AgeGenderRaceRINPF7891213_cis_1Mb_sentinel_magnet")
+  
+  me = Matrix_eQTL_main(
+    snps = cpgs, #sliced data object 
+    gene = gene,
+    cvrt = cvrt,
+    output_file_name.cis = output_file_name,
+    pvOutputThreshold.cis = 1,
+    pvOutputThreshold = 0, # set=0 if analysing cis-pairs
+    snpspos=cpgspos,
+    genepos =genepos,
+    useModel = modelLINEAR, # standard additive linear model rather than dominant or recessive linear model (applies to genetic data)
+    errorCovariance = numeric(), # independence for gene expression
+    verbose = TRUE,
+    cisDist=1e6, # distance for local gene-CpG pairs. Make sure its TSS-centered!
+    min.pv.by.genesnp = FALSE,
+    noFDRsaveMemory = FALSE); # calculate FDR?
